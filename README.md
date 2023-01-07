@@ -33,14 +33,14 @@ Run `FmhyChecker.pyw`
 
 This tool takes links inputted into the field on the left, and checks if they are not already present in the wiki. Links will be automatically pulled using regex.
 
-*Note that the ReGex is designed to ignore trailing `/`, `http`/`https`, and `www`/`ww<n>`*
+*Note that the ReGex is designed to ignore trailing `/`, `http`/`https`, and `www`/`ww1`...`2`...etc*
 
 *Dupes* will be indicated with a ❌, and *unique* links will have a ✅. Once the scan is complete, the `Copy ❌` and `Copy ✅` buttons will be ungreyed, allowing you to copy all *dupe* or *unique* flagged links separated by a newline (`\n`).
 
 
-### Checking URL validity 
+### Broken link tester
 
-![video here](https://i.imgur.com/9BhHsaY.mp4)
+![Usage video here](https://i.imgur.com/9BhHsaY.mp4)
 
 Selecting links and clicking `Test` will the URL's redirect chain. View a URL by hovering over its status code.
 
