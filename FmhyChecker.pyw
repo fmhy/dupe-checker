@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import QMainWindow
 from requests.exceptions import ReadTimeout, ConnectionError
 import time
 import csv
+import darkdetect
+import ctypes as ct
 
 # fake headers
 headers = Headers(headers=True)
@@ -58,6 +60,13 @@ class UI(QMainWindow):
         uic.loadUi(resource_path('MainWindow.ui'), self)
         
         self.setWindowIcon(QtGui.QIcon(resource_path('assets\\icon.ico')))
+        if darkdetect.isDark():
+            self._highlight_col = QtGui.QColor(157, 93, 24)
+            dark_palette()
+            dark_title_bar(int(self.winId()))
+            self.outputTree.setFont(self.inputBox.font())
+        else:
+            self._highlight_col = QtGui.QColor(255, 128, 0)
         
         self.checkSelected.setVisible(False)
         self.outputTree.header().setSectionsMovable(False)
@@ -246,7 +255,7 @@ class UI(QMainWindow):
                 if link[1] in wiki:
                     item.setText(0, "\u274C")
                     for _ in range(3):
-                        item.setBackground(_, QtGui.QColor(255, 128, 0))
+                        item.setBackground(_, self._highlight_col)
                     self.duped_links.append(full_link)
                 else:
                     item.setText(0, "\u2705")
@@ -262,7 +271,7 @@ class UI(QMainWindow):
     def retranslateUi(self):
         # Set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.10"))
+        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.11"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
         self.label_2.setText(_translate("MainWindow", "by cevoj35548"))
         self._placeholderText = _translate("MainWindow", "Paste a list of links here")
@@ -275,6 +284,42 @@ class UI(QMainWindow):
         self.outputTree.headerItem().setText(1, _translate("MainWindow", "Link"))
         self.outputTree.headerItem().setText(2, _translate("MainWindow", "Status"))
 
+
+def dark_title_bar(hwnd):
+    if (
+        sys.platform != 'win32'
+        or (version_num := sys.getwindowsversion()).major != 10
+    ):
+        return
+    set_window_attribute = ct.windll.dwmapi.DwmSetWindowAttribute
+    if version_num.build >= 22000: # windows 11
+        color = ct.c_int(0x2d2319)
+        set_window_attribute(hwnd, 35, ct.byref(color), ct.sizeof(color))
+    else:
+        rendering_policy = 19 if version_num.build < 19041 else 20 # 19 before 20h1
+        value = ct.c_int(True)
+        set_window_attribute(hwnd, rendering_policy, ct.byref(value), ct.sizeof(value))
+
+
+def dark_palette():
+    app.setStyle('Fusion')
+    palette = QtGui.QPalette()
+    palette.setColor(QtGui.QPalette.Window, QtGui.QColor(25,35,45))
+    palette.setColor(QtGui.QPalette.Light, QtGui.QColor(39, 49, 58))
+    palette.setColor(QtGui.QPalette.Dark, QtGui.QColor(39, 49, 58))
+    palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
+    palette.setColor(QtGui.QPalette.Base, QtGui.QColor(39, 49, 58))
+    palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(25,35,45))
+    palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.white)
+    palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
+    palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
+    palette.setColor(QtGui.QPalette.Button, QtGui.QColor(25,35,45))
+    palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
+    palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.blue)
+    palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(20, 129, 216))
+    palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
+    app.setPalette(palette)
+    
  
 if __name__ == "__main__":
     import sys
