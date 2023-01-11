@@ -115,39 +115,40 @@ class UI(QMainWindow):
         file_dialog.setNameFilter("CSV (*.csv)")
         file_dialog.setDefaultSuffix("csv")
         # show dialog
-        if file_dialog.exec_():
-            file_path = file_dialog.selectedFiles()[0]
-            links = re.findall(self.group_url_regex, self.inputBox.toPlainText())
-            try:
-                with open(file_path, 'w', newline='') as csvfile:
-                    writer = csv.writer(csvfile, dialect='excel', quoting=csv.QUOTE_MINIMAL)
-                    writer.writerow(['Request URL', 'Unique?', '# Redirects', 'Status', 'Reason'])
-                    for link in links:
-                        full_link = ''.join(link)
-                        if full_link in self.tested_items:
-                            if type(self.tested_items[full_link]) is str:
-                                _redirects = _status_code = ''
-                                _reason = self.tested_items[full_link]
-                            else:
-                                _redirects = str(len(self.tested_items[full_link].history))
-                                _reason = self.tested_items[full_link].reason
-                                _status_code = '=CONCAT('+', " > ", '.join(
+        if not file_dialog.exec_():
+            return
+        file_path = file_dialog.selectedFiles()[0]
+        links = re.findall(self.group_url_regex, self.inputBox.toPlainText())
+        try:
+            with open(file_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile, dialect='excel', quoting=csv.QUOTE_MINIMAL)
+                writer.writerow(['Request URL', 'Unique?', '# Redirects', 'Status', 'Reason'])
+                for link in links:
+                    full_link = ''.join(link)
+                    if full_link in self.tested_items:
+                        if type(self.tested_items[full_link]) is str:
+                            _redirects = _status_code = ''
+                            _reason = self.tested_items[full_link]
+                        else:
+                            _redirects = str(len(self.tested_items[full_link].history))
+                            _reason = self.tested_items[full_link].reason
+                            _status_code = '=CONCAT('+', " > ", '.join(
                                 f'HYPERLINK("{r.url}", "{r.status_code}")'
                                 for r in (
                                     *self.tested_items[full_link].history,
                                     self.tested_items[full_link])
-                                )+')'
-                        else:
-                            _reason = _redirects = _status_code = ''
-                        writer.writerow([
-                            full_link,
-                            'FALSE' if link[1] in wiki else 'TRUE',
-                            _redirects,
-                            _status_code,
-                            _reason
-                        ])
-            except PermissionError:
-                QtWidgets.QMessageBox.critical(self.centralwidget, "Error", "File permission denied.")
+                            )+')'
+                    else:
+                        _reason = _redirects = _status_code = ''
+                    writer.writerow([
+                        full_link,
+                        'FALSE' if link[1] in wiki else 'TRUE',
+                        _redirects,
+                        _status_code,
+                        _reason
+                    ])
+        except PermissionError:
+            QtWidgets.QMessageBox.critical(self.centralwidget, "Error", "File permission denied.")
     
     def getTestedLinks(self):
         return [
