@@ -324,7 +324,7 @@ def dark_palette():
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
-    fonts_dir = resource_path('assets\\fonts')
+    fonts_dir = resource_path('assets/fonts')
     for f in os.listdir(fonts_dir):
         QtGui.QFontDatabase.addApplicationFont(os.path.join(fonts_dir, f))
     MainWindow = QMainWindow()
