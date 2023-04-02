@@ -20,7 +20,7 @@ cd fmhy-dupe-checker\
 [Python](https://www.python.org/downloads/) is required. 
 
 ```bash
-pip install requests PyQt5 pyperclip fake-headers darkdetect
+pip install requests grequests PyQt5 pyperclip fake-headers darkdetect
 ```
 
 Run `FmhyChecker.pyw`
