@@ -1,3 +1,4 @@
+import grequests
 import requests
 from fake_headers import Headers
 import os
@@ -15,13 +16,28 @@ import csv
 import darkdetect
 import ctypes as ct
 
+
+# regex for scraping links from wikis (links must include https)
+url_regex = re.compile(r'(?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
+# regex for scraping lists of urls (NOT including https)
+list_regex = re.compile(r'^[\w]*\.[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-]', re.MULTILINE)
+# urls to scrape (feel free to add more!)
+URLS = {
+    'https://gitlab.com/nbatman_/deleted-links/-/raw/main/deleted-links': list_regex,
+    'https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page': url_regex,
+}
+
 # fake headers
 headers = Headers(headers=True)
 
-# wiki scrape 
+# scrape wiki
 elapsed = time.perf_counter()
-url_regex = re.compile(r'(?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
-wiki = set(re.findall(url_regex, requests.get("https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page").text))
+
+resps = grequests.map([grequests.get(l) for l in URLS], size=len(URLS))
+wiki = set()
+for resp, reg in zip(resps, URLS.values()):
+    wiki.update(set(re.findall(reg, resp.text)))
+
 print(f'Wiki scraped in {time.perf_counter() - elapsed:0.4f} sec. Found {len(wiki)} links.')
 
 
@@ -127,25 +143,25 @@ class UI(QMainWindow):
                     full_link = ''.join(link)
                     if full_link in self.tested_items:
                         if type(self.tested_items[full_link]) is str:
-                            _redirects = _status_code = ''
-                            _reason = self.tested_items[full_link]
+                            redirects = status_code = ''
+                            reason = self.tested_items[full_link]
                         else:
-                            _redirects = str(len(self.tested_items[full_link].history))
-                            _reason = self.tested_items[full_link].reason
-                            _status_code = '=CONCAT('+', " > ", '.join(
+                            redirects = str(len(self.tested_items[full_link].history))
+                            reason = self.tested_items[full_link].reason
+                            status_code = '=CONCAT('+', " > ", '.join(
                                 f'HYPERLINK("{r.url}", "{r.status_code}")'
                                 for r in (
                                     *self.tested_items[full_link].history,
                                     self.tested_items[full_link])
                             )+')'
                     else:
-                        _reason = _redirects = _status_code = ''
+                        reason = redirects = status_code = ''
                     writer.writerow([
                         full_link,
                         'FALSE' if link[1] in wiki else 'TRUE',
-                        _redirects,
-                        _status_code,
-                        _reason
+                        redirects,
+                        status_code,
+                        reason
                     ])
         except PermissionError:
             QtWidgets.QMessageBox.critical(self.centralwidget, "Error", "File permission denied.")
@@ -272,10 +288,10 @@ class UI(QMainWindow):
     def retranslateUi(self):
         # Set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.11"))
+        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.12"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
         self.label_2.setText(_translate("MainWindow", "by cevoj35548"))
-        self._placeholderText = _translate("MainWindow", "Paste a list of links here")
+        self._placeholderText = _translate("MainWindow", "Paste a list of links here...")
         self.inputBox.setPlaceholderText(self._placeholderText)
         self.copyValid.setText(_translate("MainWindow", "Copy \u2705"))
         self.copyDupes.setText(_translate("MainWindow", "Copy \u274C"))
