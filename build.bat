@@ -11,4 +11,5 @@ if %errorlevel%==0 (
 )
 
 echo.====================
+prompt
 pause >nul
