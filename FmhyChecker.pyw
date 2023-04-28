@@ -17,28 +17,8 @@ import darkdetect
 import ctypes as ct
 
 
-# regex for scraping links from wikis (links must include https)
-url_regex = re.compile(r'(?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
-# regex for scraping lists of urls (NOT including https)
-list_regex = re.compile(r'^[\w]*\.[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-]', re.MULTILINE)
-# urls to scrape (feel free to add more!)
-URLS = {
-    'https://gitlab.com/nbatman_/deleted-links/-/raw/main/deleted-links': list_regex,
-    'https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page': url_regex,
-}
-
 # fake headers
 headers = Headers(headers=True)
-
-# scrape wiki
-elapsed = time.perf_counter()
-
-resps = grequests.map([grequests.get(l) for l in URLS], size=len(URLS))
-wiki = set()
-for resp, reg in zip(resps, URLS.values()):
-    wiki.update(set(re.findall(reg, resp.text)))
-
-print(f'Wiki scraped in {time.perf_counter() - elapsed:0.4f} sec. Found {len(wiki)} links.')
 
 
 def resource_path(relative_path):
@@ -85,6 +65,7 @@ class UI(QMainWindow):
             self._highlight_col = QtGui.QColor(255, 128, 0)
         
         self.checkSelected.setVisible(False)
+        self.progressBarFrame.setVisible(False)
         self.outputTree.header().setSectionsMovable(False)
         self.outputTree.setColumnWidth(0, 50)
         self.outputTree.setColumnWidth(1, 180)
@@ -138,13 +119,14 @@ class UI(QMainWindow):
         try:
             with open(file_path, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile, dialect='excel', quoting=csv.QUOTE_MINIMAL)
-                writer.writerow(['Request URL', 'Unique?', '# Redirects', 'Status', 'Reason'])
+                writer.writerow(['Request URL', 'Final URL', 'Unique?', '# Redirects', 'Status', 'Reason'])
                 for link in links:
                     full_link = ''.join(link)
                     if full_link in self.tested_items:
                         if type(self.tested_items[full_link]) is str:
                             redirects = status_code = ''
                             reason = self.tested_items[full_link]
+                            final_url = ''
                         else:
                             redirects = str(len(self.tested_items[full_link].history))
                             reason = self.tested_items[full_link].reason
@@ -154,10 +136,13 @@ class UI(QMainWindow):
                                     *self.tested_items[full_link].history,
                                     self.tested_items[full_link])
                             )+')'
+                            final_url = self.tested_items[full_link].url
                     else:
-                        reason = redirects = status_code = ''
+                        reason = redirects = final_url = status_code = ''
                     writer.writerow([
-                        full_link,
+                        re.sub(r'[^\x00-\x7F]+', '?', full_link),  # remove non ascii characters
+                        final_url,
+                        redirects,
                         'FALSE' if link[1] in wiki else 'TRUE',
                         redirects,
                         status_code,
@@ -252,6 +237,11 @@ class UI(QMainWindow):
         
         links = re.findall(self.group_url_regex, text)
         self.valid_links, self.duped_links, self.tested_links = [], [], []
+        # enable progress bar
+        self.progressBar.setMaximum(len(links))
+        self.progressBar.setValue(0)
+        self.progressBarFrame.setVisible(True)
+        self.outputTree.setVisible(False)  # hide the treeview while updating for performance
         # populate tree
         for n, link in enumerate(links):
             if self._new_event:
@@ -261,8 +251,9 @@ class UI(QMainWindow):
             item = QtWidgets.QTreeWidgetItem(self.outputTree)
             full_link = ''.join(link)
             item.setText(1, full_link)
-            if len(links) > 100 and not n % 10:
+            if len(links) > 100 and not n % 100:
                 # process in chunks to allow for UI updates
+                self.progressBar.setValue(n)
                 QtWidgets.QApplication.processEvents()
             with suppress(RuntimeError):
                 if full_link in self.tested_items:
@@ -277,6 +268,9 @@ class UI(QMainWindow):
                 else:
                     item.setText(0, "\u2705")
                     self.valid_links.append(full_link)
+        # show finished tree
+        self.outputTree.setVisible(True)
+        self.progressBarFrame.setVisible(False)
         # toggle buttons
         self.copyValid.setEnabled(bool(self.valid_links))
         self.copyDupes.setEnabled(bool(self.duped_links))
@@ -288,7 +282,7 @@ class UI(QMainWindow):
     def retranslateUi(self):
         # Set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.12"))
+        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.13"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
         self.label_2.setText(_translate("MainWindow", "by cevoj35548"))
         self._placeholderText = _translate("MainWindow", "Paste a list of links here...")
@@ -341,6 +335,34 @@ def dark_palette():
 if __name__ == "__main__":
     import sys
     app = QtWidgets.QApplication(sys.argv)
+
+    # regex for scraping links from wikis (links must include https)
+    url_regex = re.compile(r'(?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
+    # regex for scraping lists of urls (NOT including https)
+    list_regex = re.compile(r'^[\w]*\.[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-]', re.MULTILINE)
+    # urls to scrape (feel free to add more!)
+    URLS = {
+        'https://gitlab.com/nbatman_/deleted-links/-/raw/main/deleted-links': list_regex,
+        'https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page': url_regex,
+    }
+    # scrape wiki
+    elapsed = time.perf_counter()
+    try:
+        resps = grequests.map([grequests.get(l) for l in URLS], size=len(URLS))
+    except ConnectionError:
+        # make qt message box
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Critical)
+        msg.setText("Could not connect to the internet. Please check your connection and try again.")
+        msg.setWindowTitle("Connection Error")
+        msg.exec_()
+        exit(1)
+    wiki = set()
+    for resp, reg in zip(resps, URLS.values()):
+        wiki.update(set(re.findall(reg, resp.text)))
+
+    print(f'Wiki scraped in {time.perf_counter() - elapsed:0.4f} sec. Found {len(wiki)} links.')
+
     fonts_dir = resource_path('assets/fonts')
     for f in os.listdir(fonts_dir):
         QtGui.QFontDatabase.addApplicationFont(os.path.join(fonts_dir, f))
