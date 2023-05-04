@@ -14,11 +14,15 @@ from requests.exceptions import ReadTimeout, ConnectionError
 import time
 import csv
 import darkdetect
+from base64 import b64decode
 import ctypes as ct
+from queue import Queue
 
 
 # fake headers
 headers = Headers(headers=True)
+# use queues to keep track of connection pools
+dist_cnxns = Queue(maxsize=50)
 
 
 def resource_path(relative_path):
@@ -29,8 +33,10 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def handle_req(url, item, callback):
+    dist_cnxns.put(1)
+    item.setText(2, 'Testing...')
     try:
-        resp = requests.get(url, headers=headers.generate(), timeout=10)
+        resp = requests.head(url, headers=headers.generate(), timeout=10, allow_redirects=True)
         if resp is None: resp = 'Failed'
     except ReadTimeout:
         callback(url, 'Timeout', item)
@@ -39,7 +45,10 @@ def handle_req(url, item, callback):
     except Exception as e:
         callback(url, str(e), item)
     else:
+        if resp.status_code != 200:
+            resp = resp.reason or 'Unknown'
         callback(url, resp, item)
+    dist_cnxns.get()
 
 def async_request(*args):
     thread = Thread(target=handle_req, args=args, daemon=True)
@@ -48,7 +57,7 @@ def async_request(*args):
 
 class UI(QMainWindow):
     group_url_regex = re.compile(r'((?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?)((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
-    call_back_checkLinks= pyqtSignal()
+    call_back_checkLinks = pyqtSignal()
     http_test_sig = pyqtSignal(str, object, object)
     
     def __init__(self):
@@ -84,6 +93,13 @@ class UI(QMainWindow):
             range(400, 500): '#fda92a',
             range(500, 600): '#fc4f52',
         }
+        self.reason_colors = {
+            # default is #A12729
+            'Forbidden': '#1D2870',
+            'Blocked': '#1D2870',
+            'Method Not Allowed': '#1D2870',
+            'Timeout': '#781C1E'
+        }
  
         # connections
         self.copyDupes.clicked.connect(lambda: copy('\n'.join(self.duped_links)))
@@ -104,6 +120,7 @@ class UI(QMainWindow):
         self._new_event = False
  
         self.retranslateUi()
+        splash.hide()
         self.show()
     
     def exportCsvDialog(self):
@@ -177,7 +194,8 @@ class UI(QMainWindow):
         if type(resp) is str:
             label = QtWidgets.QLabel(f' {resp} ')
             label.setFont(self.status_font)
-            label.setStyleSheet('background-color: #A12729; color: white; border-radius: 6px;')
+            color = self.reason_colors.get(resp, '#A12729')
+            label.setStyleSheet(f'background-color: {color}; color: white; border-radius: 6px;')
             layout.addWidget(label)
             return
         for r in (*resp.history, resp):
@@ -193,11 +211,12 @@ class UI(QMainWindow):
         selected = self.getRanItems()
         self.testing_items.update([i.text(1) for i in selected])  # remember tested items
         for item in selected:
-            item.setText(2, "Testing...")
+            item.setText(2, "Queued")
         self.outputTree.clearSelection()
         self.checkSelected.setVisible(False)
         for item in selected:
             async_request(item.text(1), item, self.http_test_sig.emit)
+            QtWidgets.QApplication.processEvents()  # allow GUI to update
         
     def getRanItems(self):
         return [i for i in self.outputTree.selectedItems()
@@ -282,9 +301,9 @@ class UI(QMainWindow):
     def retranslateUi(self):
         # Set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.13"))
+        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.14"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
-        self.label_2.setText(_translate("MainWindow", "by cevoj35548"))
+        self.label_2.setText(_translate("MainWindow", "by cevoj"))
         self._placeholderText = _translate("MainWindow", "Paste a list of links here...")
         self.inputBox.setPlaceholderText(self._placeholderText)
         self.copyValid.setText(_translate("MainWindow", "Copy \u2705"))
@@ -330,38 +349,70 @@ def dark_palette():
     palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(20, 129, 216))
     palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
     app.setPalette(palette)
-    
- 
-if __name__ == "__main__":
-    import sys
-    app = QtWidgets.QApplication(sys.argv)
 
-    # regex for scraping links from wikis (links must include https)
-    url_regex = re.compile(r'(?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
-    # regex for scraping lists of urls (NOT including https)
-    list_regex = re.compile(r'^[\w]*\.[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-]', re.MULTILINE)
-    # urls to scrape (feel free to add more!)
-    URLS = {
-        'https://gitlab.com/nbatman_/deleted-links/-/raw/main/deleted-links': list_regex,
-        'https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page': url_regex,
-    }
+
+def build_wiki_set():
     # scrape wiki
     elapsed = time.perf_counter()
     try:
         resps = grequests.map([grequests.get(l) for l in URLS], size=len(URLS))
     except ConnectionError:
-        # make qt message box
+        # show connection error
         msg = QtWidgets.QMessageBox()
         msg.setIcon(QtWidgets.QMessageBox.Critical)
         msg.setText("Could not connect to the internet. Please check your connection and try again.")
         msg.setWindowTitle("Connection Error")
+        splash.hide()
         msg.exec_()
         exit(1)
     wiki = set()
-    for resp, reg in zip(resps, URLS.values()):
-        wiki.update(set(re.findall(reg, resp.text)))
+    for resp, exps in zip(resps, URLS.values()):
+        for exp in exps:
+            if exp is b64_regex:
+                wiki.update(handle_b64(resp.text))
+            else:
+                wiki.update(set(re.findall(exp, resp.text)))
 
     print(f'Wiki scraped in {time.perf_counter() - elapsed:0.4f} sec. Found {len(wiki)} links.')
+    return wiki
+
+
+def handle_b64(content):
+    data = '\n'.join(
+        b64decode(m.strip('`')).decode()
+        for m in re.findall(b64_regex, content)
+    )
+    return set(re.findall(url_regex, data))
+
+
+# regex for scraping links from wikis (links must include leading http(s)://)
+url_regex = re.compile(r'(?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
+# regex for scraping lists of urls (for links not including http(s)://)
+list_regex = re.compile(r'^[\w]*\.[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-]', re.MULTILINE)
+# regex for scraping base64 encoded links
+b64_regex = re.compile(r'`aHR0(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?`')
+
+'''
+FOR ANYONE IN THE FUTURE TRYING TO MAINTAIN THIS
+you can add a wikis to scrape by adding new key-value pairs to the dict below
+the key is the url of the wiki, and the value is a tuple of regexes to use for scraping
+'''
+URLS = {
+    'https://gitlab.com/nbatman_/deleted-links/-/raw/main/deleted-links': (list_regex,),
+    'https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page': (url_regex, b64_regex),
+}
+
+
+if __name__ == "__main__":
+    import sys
+    app = QtWidgets.QApplication(sys.argv)
+
+    # set splash screen
+    splash_icon = QtGui.QPixmap(resource_path('assets/splash.svg'))
+    splash = QtWidgets.QSplashScreen(splash_icon, QtCore.Qt.WindowStaysOnTopHint)
+    splash.show()
+    wiki = build_wiki_set()
+    
 
     fonts_dir = resource_path('assets/fonts')
     for f in os.listdir(fonts_dir):
