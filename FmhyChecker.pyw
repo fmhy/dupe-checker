@@ -234,6 +234,8 @@ class UI(QMainWindow):
         self.outputTree.setItemWidget(item, 2, widget)
         item.setText(2, "")  # remove the loading text
         # if a message was passed, only add it to the layout
+        if type(resp) is str:
+            message = resp
         if message:
             color = self.reason_colors.get(message, '#A12729')
             return self.add_status_label(layout, message, color)
@@ -263,7 +265,10 @@ class UI(QMainWindow):
         self.checkSelected.setVisible(False)
         # send requests
         for item in selected:
-            async_request(item.text(1), item, self.http_test_sig.emit)
+            try:
+                async_request(item.text(1), item, self.http_test_sig.emit)
+            except RuntimeError:
+                return  # item was deleted
             QtWidgets.QApplication.processEvents()  # allow GUI to update
         
     def getRanItems(self) -> list:
@@ -361,7 +366,7 @@ class UI(QMainWindow):
     def retranslateUi(self):
         # set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.15"))
+        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.15.1"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
         self.label_2.setText(_translate("MainWindow", "by cevoj"))
         self._placeholderText = _translate("MainWindow", "Paste a list of links here...")
