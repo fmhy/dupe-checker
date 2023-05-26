@@ -1,4 +1,3 @@
-import gevent
 import grequests
 import requests
 from fake_headers import Headers
@@ -37,6 +36,7 @@ def resource_path(relative_path):
 
 def handle_req(url, item, callback):
     # process the request & send back to main event loop
+    dist_cnxns.put(1)  # wait for when <40 requests are running. blocks if full
     item.setText(2, 'Testing...')
     try:
         resp = requests.head(url, headers=headers.generate(), timeout=10, allow_redirects=True)
@@ -60,17 +60,10 @@ def send_resp(url, resp, item, callback):
     # response was success
     return callback(url, resp, item, None)
 
-
-def add_request(*args):
-    dist_cnxns.put(1)  # wait for when <40 requests are running. blocks if full
+def async_request(*args):
     thread = Thread(target=handle_req, args=args, daemon=True)
     # spawn thread to handle request
     thread.start()
-
-def async_request(*args):
-    # spawn greenlets to wait their turn in the queue
-    gevent.spawn(add_request, *args)
-    gevent.sleep()  # workaround for gevent bug
 
 
 class UI(QMainWindow):
@@ -366,7 +359,7 @@ class UI(QMainWindow):
     def retranslateUi(self):
         # set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.15.1"))
+        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.15.2"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
         self.label_2.setText(_translate("MainWindow", "by cevoj"))
         self._placeholderText = _translate("MainWindow", "Paste a list of links here...")
