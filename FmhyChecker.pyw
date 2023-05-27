@@ -1,6 +1,7 @@
 import grequests
 import requests
 from fake_headers import Headers
+import sys
 import os
 import re
 from threading import Thread, Event
@@ -26,7 +27,8 @@ from typing import Union
 headers = Headers()
 # use Queue to limit number of concurrent requests
 dist_cnxns = Queue(maxsize=3)
-
+# check for dark mode
+DARK_MODE = darkdetect.isDark()
 
 def resource_path(relative_path):
     # wrapper to retrieve the absolute path from a relative path
@@ -75,7 +77,7 @@ class LinkTest:
     }
 
     @staticmethod
-    def handle_req(urls, items, callback):
+    def handle_req(urls, items, callback, error_sig):
         # process the request & send back to main event loop
         dist_cnxns.put(1)  # wait for when <40 requests are running. blocks if full
         for item in items:
@@ -88,9 +90,9 @@ class LinkTest:
             )
             data = resp.json()
         except (ReadTimeout, ConnectionError):
-            error_msg('Connection timed out. Please check your internet connection and try again.')
+            error_sig('Connection timed out. Please check your internet connection and try again.')
         except Exception as e:
-            error_msg(f'An unknown error occurred. Please try again.\n\n{e}')
+            error_sig(f'An unknown error occurred. Please try again.\n\n{e}')
         for (item, url, resp) in zip(items, urls, data):
             try:
                 callback(item, LinkTest.build_status_resp(resp, url))
@@ -116,8 +118,9 @@ class LinkTest:
 
 
 class UI(QMainWindow):
-    checkLinks_callback = pyqtSignal()
-    http_test_sig = pyqtSignal(object, StatusResp)
+    checkLinks_callback = pyqtSignal()  # signal to callback checkLinks if it was called but already running
+    finish_test_sig = pyqtSignal(object, StatusResp)  # signal to call finishTest
+    error_sig = pyqtSignal(str)  # signal to call error_msg
     # regex for slicing links into groups ( <protocol://> <domain/path> <?leading info> )
     # i only check if group 1 is in the wiki to determine if the link is unique, then add the full link
     grouped_wiki_regex = re.compile(r'((?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?)((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
@@ -128,7 +131,7 @@ class UI(QMainWindow):
         
         self.setWindowIcon(QtGui.QIcon(resource_path('assets/icon.ico')))
         # palette coloring
-        if darkdetect.isDark():
+        if DARK_MODE:
             self._highlight_col = QtGui.QColor(157, 93, 24)
             dark_palette()
             dark_title_bar(int(self.winId()))
@@ -173,8 +176,10 @@ class UI(QMainWindow):
         self.checkSelected.clicked.connect(self.test_selected_links)
         self.inputBox.textChanged.connect(self.checkLinks)
         self.outputTree.itemSelectionChanged.connect(self.onSelection)
-        self.http_test_sig.connect(self.finishTest)
+        # signals
+        self.finish_test_sig.connect(self.finishTest)
         self.checkLinks_callback.connect(self.checkLinks)
+        self.error_sig.connect(error_msg)
         
         self.testing_items = set()
         self.tested_items = {}
@@ -182,7 +187,7 @@ class UI(QMainWindow):
         self._is_free.set()
         self.line_thread = None
         self._new_event = False
- 
+        
         self.retranslateUi()
         splash.hide()
         self.show()
@@ -252,7 +257,7 @@ class UI(QMainWindow):
                 and self.tested_items[l].status_code in range(200, 300)
             ]
     
-    # add the satus code chain to the tree
+    # add the status code chain to the tree
     def finishTest(self, item, resp):
         # remove from testing items, and add the resp to tested items
         if resp.url in self.testing_items:
@@ -321,7 +326,7 @@ class UI(QMainWindow):
             items = selected[index:index+LinkTest.chunk_size]
             urls = [item.text(1) for item in items]
             try:
-                LinkTest.async_request(urls, items, self.http_test_sig.emit)
+                LinkTest.async_request(urls, items, self.finish_test_sig.emit, self.error_sig.emit)
             except RuntimeError:
                 return  # item was deleted
             QtWidgets.QApplication.processEvents()  # allow GUI to update
@@ -415,13 +420,13 @@ class UI(QMainWindow):
         self.copyDupes.setEnabled(bool(self.duped_links))
         self.copyTested.setEnabled(bool(self.getTestedLinks()))
         self.exportCsv.setEnabled(True)
-        # handle copy buttons
+        # free the next checkLinks call
         self._is_free.set()
  
     def retranslateUi(self):
         # set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.16"))
+        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.16.1"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
         self.label_2.setText(_translate("MainWindow", "by cevoj"))
         self._placeholderText = _translate("MainWindow", "Paste a list of links here...")
@@ -497,6 +502,7 @@ class WikiScraper:
             resps = grequests.map([grequests.get(l) for l in self.URLS], size=len(self.URLS))
         except ConnectionError:
             # show connection error
+            splash.hide()
             self.error_msg("Could not connect to the internet. Please check your connection and try again.")
         wiki = set()
         for resp, funcs in zip(resps, self.URLS.values()):
@@ -524,17 +530,19 @@ class WikiScraper:
         return self.handle_list(data)
 
 def error_msg(text):
+    # build error message
     msg = QtWidgets.QMessageBox()
     msg.setIcon(QtWidgets.QMessageBox.Critical)
     msg.setText(text)
+    msg.setWindowIcon(QtGui.QIcon(resource_path('assets/icon.ico')))
     msg.setWindowTitle("Connection Error")
-    splash.hide()
+    if DARK_MODE:
+        dark_title_bar(int(msg.winId()))
     msg.exec_()
     exit(1)
 
 
 if __name__ == "__main__":
-    import sys
     app = QtWidgets.QApplication(sys.argv)
 
     # set splash screen
