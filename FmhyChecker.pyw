@@ -24,11 +24,12 @@ from typing import Union
 
 
 # fake headers
-headers = Headers()
+headers     = Headers()
 # use Queue to limit number of concurrent requests
-dist_cnxns = Queue(maxsize=3)
+dist_cnxns  = Queue(maxsize=3)
 # check for dark mode
-DARK_MODE = darkdetect.isDark()
+DARK_MODE   = darkdetect.isDark()
+
 
 def resource_path(relative_path):
     # wrapper to retrieve the absolute path from a relative path
@@ -48,8 +49,8 @@ class StatusResp:
 
 
 class LinkTest:
-    chunk_size = 50  # number of links to test at once
-    statusapi_url = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
+    chunk_size      = 50  # number of links to test at once
+    statusapi_url   = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
     statusapi_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0',
         'Accept': 'application/json, text/plain, */*',
@@ -79,7 +80,7 @@ class LinkTest:
     @staticmethod
     def handle_req(urls, items, callback, error_sig):
         # process the request & send back to main event loop
-        dist_cnxns.put(1)  # wait for when <40 requests are running. blocks if full
+        dist_cnxns.put(1)  # wait for when <3 requests are running. blocks if full
         for item in items:
             item.setText(2, 'Testing...')
         try:
@@ -119,8 +120,8 @@ class LinkTest:
 
 class UI(QMainWindow):
     checkLinks_callback = pyqtSignal()  # signal to callback checkLinks if it was called but already running
-    finish_test_sig = pyqtSignal(object, StatusResp)  # signal to call finishTest
-    error_sig = pyqtSignal(str)  # signal to call error_msg
+    finish_test_sig     = pyqtSignal(object, StatusResp)  # signal to call finishTest
+    error_sig           = pyqtSignal(str)  # signal to call error_msg
     # regex for slicing links into groups ( <protocol://> <domain/path> <?leading info> )
     # i only check if group 1 is in the wiki to determine if the link is unique, then add the full link
     grouped_wiki_regex = re.compile(r'((?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?)((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
