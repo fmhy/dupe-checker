@@ -1,37 +1,53 @@
+"""
+FMHY Dupe Checker
+v1.17
+"""
+
+
+__author__ = "cevoj"
+__version__ = "1.17"
+
+
+# networking
 import grequests
 import requests
+import urllib3
 from fake_headers import Headers
+from http.client import responses as status_codes
+from requests.exceptions import ConnectTimeout, ReadTimeout, ConnectionError, SSLError
+
+# gui
+from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import pyqtSignal
+from PyQt5 import uic
+from PyQt5.QtWidgets import QMainWindow
+import ctypes as ct
+import darkdetect
+from pyperclip import copy
+
+# builtins
 import sys
 import os
 import re
 from threading import Thread, Event
 from contextlib import suppress
-from pyperclip import copy
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import pyqtSignal
-from PyQt5 import uic
-from PyQt5.QtWidgets import QMainWindow
-from requests.exceptions import ReadTimeout, ConnectionError
 import time
 import csv
-import darkdetect
 from base64 import b64decode
-import ctypes as ct
 from queue import Queue
 from dataclasses import dataclass
-from http.client import responses as status_codes
 from typing import Union
 
 
+# disable ssl warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # fake headers
-headers     = Headers()
+headers = Headers(headers=True)
 # use Queue to limit number of concurrent requests
-dist_cnxns  = Queue(maxsize=3)
-# check for dark mode
-DARK_MODE   = darkdetect.isDark()
+dist_cnxns = Queue(maxsize=3)
 
 
-def resource_path(relative_path):
+def resource_path(relative_path) -> str:
     # wrapper to retrieve the absolute path from a relative path
     try:
         base_path = sys._MEIPASS
@@ -49,13 +65,13 @@ class StatusResp:
 
 
 class LinkTest:
-    chunk_size      = 50  # number of links to test at once
-    statusapi_url   = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
+    chunk_size = 50  # number of links to test at once
+    statusapi_url = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
     statusapi_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0',
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'en-US,en;q=0.5',
-        # 'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Referer': b64decode('aHR0cHM6Ly9odHRwc3RhdHVzLmlvLw==').decode(),
         'Content-Type': 'application/json;charset=utf-8',
         'Origin': b64decode('aHR0cHM6Ly9odHRwc3RhdHVzLmlv').decode(),
@@ -71,14 +87,47 @@ class LinkTest:
         'userName': '', 'passWord': '', 'headerName': '', 'headerValue': '',
         'strictSSL': True,
         'canonicalDomain': False,
-        'additionalSubdomains': ['www',],
+        'additionalSubdomains': ['www'],
         'followRedirect': True,
         'throttleRequests': 100,
         'escapeCharacters': False,
     }
+    error_names = {
+        SSLError: 'SSL Error',
+        ReadTimeout: 'Timeout',
+        ConnectTimeout: 'Timeout',
+        ConnectionError: 'Connection Error',
+    }
 
     @staticmethod
     def handle_req(urls, items, callback, error_sig):
+        # process the request & send back to main event loop
+        dist_cnxns.put(1)  # wait for when <3 instances of handle_req are running. blocks if full
+        for item in items:
+            item.setText(2, 'Testing...')
+        reqs = [
+            grequests.head(url, headers=headers.generate(), timeout=5, allow_redirects=True, verify=False)
+            for url in urls
+        ]
+        resps = grequests.imap(reqs, size=len(reqs), exception_handler=lambda _, e: e)
+        for (item, url, resp) in zip(items, urls, resps):
+            if not resp:
+                err = 'Connection Failed'
+            elif isinstance(resp, Exception):
+                err = LinkTest.error_names.get(resp.__class__, resp.__class__.__name__)
+            else:
+                err = None
+            statusresp = StatusResp(
+                url          = url,
+                status_code  = 0 if err else resp.status_code,
+                reason       = err or status_codes[resp.status_code],
+                history      = [] if err else (*resp.history, resp),
+            )
+            callback(item, statusresp)
+        dist_cnxns.get()  # release next in queue
+
+    @staticmethod
+    def thirdparty_req(urls, items, callback, error_sig):
         # process the request & send back to main event loop
         dist_cnxns.put(1)  # wait for when <3 requests are running. blocks if full
         for item in items:
@@ -96,35 +145,44 @@ class LinkTest:
             error_sig(f'An unknown error occurred. Please try again.\n\n{e}')
         for (item, url, resp) in zip(items, urls, data):
             try:
-                callback(item, LinkTest.build_status_resp(resp, url))
+                callback(item, LinkTest.thirdp_status_resp(resp, url))
             except Exception as e:
                 print('Error:', e, resp)
         dist_cnxns.get()  # release next in queue
 
     @staticmethod
-    def build_status_resp(resp, url=None) -> StatusResp:
+    def thirdp_status_resp(resp, url=None) -> StatusResp:
         return StatusResp(
             url          = url or resp.get('url', 'Failed'),
             status_code  = resp['statusCode'] if type(resp.get('statusCode')) is int else 0,
             reason       = resp.get('errorMessage') or status_codes[resp['statusCode']],
-            history      = [LinkTest.build_status_resp(r)
+            history      = [LinkTest.thirdp_status_resp(r)
                             for r in resp.get('fullRedirectChain', [])],
         )
 
     @staticmethod
-    def async_request(*args):
-        thread = Thread(target=LinkTest.handle_req, args=args, daemon=True)
+    def async_request(*args, use_third_party=False):
+        thread = Thread(
+            target=(LinkTest.handle_req, LinkTest.thirdparty_req)[use_third_party],
+            args=args,
+            daemon=True
+        )
         # spawn thread to handle request
         thread.start()
 
 
 class UI(QMainWindow):
+    # signals
     checkLinks_callback = pyqtSignal()  # signal to callback checkLinks if it was called but already running
     finish_test_sig     = pyqtSignal(object, StatusResp)  # signal to call finishTest
-    error_sig           = pyqtSignal(str)  # signal to call error_msg
+    error_sig           = pyqtSignal(str)  # signal to call UI.errorMsg
     # regex for slicing links into groups ( <protocol://> <domain/path> <?leading info> )
     # i only check if group 1 is in the wiki to determine if the link is unique, then add the full link
-    grouped_wiki_regex = re.compile(r'((?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?)((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])')
+    grouped_wiki_regex = re.compile(
+        r'((?:https?|ftp|file):\/\/(?:ww(?:w|\d+)\.)?)((?:[\w_-]+(?:\.[\w_-]+)+)[\w.,@?^=%&:\/~+#-]*[\w@?^=%&~+-])'
+    )
+    # check for dark mode
+    DARK_MODE = darkdetect.isDark()
     
     def __init__(self):
         super(UI, self).__init__()
@@ -132,10 +190,10 @@ class UI(QMainWindow):
         
         self.setWindowIcon(QtGui.QIcon(resource_path('assets/icon.ico')))
         # palette coloring
-        if DARK_MODE:
+        if UI.DARK_MODE:
             self._highlight_col = QtGui.QColor(157, 93, 24)
-            dark_palette()
-            dark_title_bar(int(self.winId()))
+            UI.darkPalette()
+            UI.darkTitleBar(int(self.winId()))
             self.outputTree.setFont(self.inputBox.font())
         else:
             self._highlight_col = QtGui.QColor(255, 128, 0)
@@ -174,13 +232,17 @@ class UI(QMainWindow):
         self.copyValid.clicked.connect(lambda: copy('\n'.join(self.valid_links)))
         self.copyTested.clicked.connect(lambda: copy('\n'.join(self.getTestedLinks())))
         self.exportCsv.clicked.connect(self.exportCsvDialog)
-        self.checkSelected.clicked.connect(self.test_selected_links)
+        self.checkSelected.clicked.connect(self.testSelectedLinks)
         self.inputBox.textChanged.connect(self.checkLinks)
         self.outputTree.itemSelectionChanged.connect(self.onSelection)
         # signals
         self.finish_test_sig.connect(self.finishTest)
         self.checkLinks_callback.connect(self.checkLinks)
-        self.error_sig.connect(error_msg)
+        self.error_sig.connect(UI.errorMsg)
+        # display "useThirdParty" button when titleFrame is hovered
+        self.useThirdParty.setVisible(False)
+        self.titleFrame.enterEvent = lambda e: self.useThirdParty.setVisible(True)
+        self.titleFrame.leaveEvent = lambda e: self.useThirdParty.setVisible(False)
         
         self.testing_items = set()
         self.tested_items = {}
@@ -193,6 +255,17 @@ class UI(QMainWindow):
         splash.hide()
         self.show()
     
+    def searchText(self, text):
+        # use wiki regex to search for links in text
+        links = re.findall(self.grouped_wiki_regex, text)
+        # remove duplicates
+        seen = set()
+        for link in links:
+            if link[1] not in seen:
+                seen.add(link[1])
+                yield link
+        del seen
+    
     # csv exporting
     def exportCsvDialog(self):
         file_dialog = QtWidgets.QFileDialog()
@@ -203,7 +276,7 @@ class UI(QMainWindow):
         if not file_dialog.exec_():
             return
         file_path = file_dialog.selectedFiles()[0]
-        links = re.findall(self.grouped_wiki_regex, self.inputBox.toPlainText())
+        links = self.searchText(self.inputBox.toPlainText())
         try:
             with open(file_path, 'w', newline='') as csvfile:
                 self.writeCsvFile(csvfile, links)
@@ -214,7 +287,7 @@ class UI(QMainWindow):
         # write links to csv file
         writer = csv.writer(csvfile, dialect='excel', quoting=csv.QUOTE_MINIMAL)
         # csv header
-        writer.writerow(['Request URL', 'Final URL', 'Unique?', '# Redirects', 'Status', 'Reason'])
+        writer.writerow(['Request URL', 'Final URL', '# Redirects', 'Unique?', 'Status', 'Reason'])
         for link in links:
             full_link = ''.join(link)
             if full_link in self.tested_items:
@@ -238,25 +311,26 @@ class UI(QMainWindow):
                 # if the link was not tested, set values to blank
                 reason = redirects = final_url = status_code = ''
             # write row to csv
-            writer.writerow([
-                re.sub(r'[^\x00-\x7F]+', '?', full_link),  # remove non ascii characters
-                final_url,
-                redirects,
-                'FALSE' if link[1] in wiki else 'TRUE',
-                redirects,
-                status_code,
-                reason
-            ])
+            writer.writerow(
+                [
+                    re.sub(r"[^\x00-\x7F]+", "?", full_link),  # request url
+                    final_url,  # final url
+                    redirects,  # number of redirects
+                    "FALSE" if link[1] in wiki else "TRUE",  # unique?
+                    status_code,  # status code
+                    reason,  # reason
+                ]
+            )
     
     # return a list of unique links that have 200 status codes
     def getTestedLinks(self) -> list:
         return [
             l for l in self.tested_items
-                # if link is valid and not a message
-                if l in self.valid_links and type(self.tested_items[l]) is not str
-                # and status code was OK
-                and self.tested_items[l].status_code in range(200, 300)
-            ]
+            # if link is valid and not a message
+            if l in self.valid_links and type(self.tested_items[l]) is not str
+            # and status code was OK
+            and self.tested_items[l].status_code in range(200, 300)
+        ]
     
     # add the status code chain to the tree
     def finishTest(self, item, resp):
@@ -281,18 +355,22 @@ class UI(QMainWindow):
         item.setText(2, "")  # remove the loading text
         # add the status code chain
         for r in resp.history or (resp,):
-            color = next((self.status_colors[k] for k in self.status_colors if r.status_code in k), '#781C1E')
+            color = next(
+                (self.status_colors[k] for k in self.status_colors if r.status_code in k),
+                "#781C1E",
+            )
             text = str(r.status_code) if r.status_code else 'Error'
             text2 = r.reason
-            tooltip = f'{r.reason} | {r.url}'
-            self.add_status_label(layout, text, text2, color, tooltip)
+            tooltip = f'{r.status_code or "Error:"} {r.reason} | {r.url}'
+            self.addStatusLabel(layout, text, text2, color, tooltip)
     
-    def add_status_label(self, layout, text, text2, color, tooltip=None):
+    def addStatusLabel(self, layout, text, text2, color, tooltip=None):
         # add label to the layout
         label = QtWidgets.QLabel(text)
         # create lighter color for hover
         light_color = QtGui.QColor(color).lighter().name()
-        label.setStyleSheet(f'''
+        label.setStyleSheet(
+            f"""
             * {{
                 background-color: {color};
                 color: white;
@@ -302,7 +380,8 @@ class UI(QMainWindow):
             QLabel:hover:!pressed {{
                 border: 2px solid {light_color};
             }}
-            ''')
+            """
+        )
         label.setMouseTracking(True)
         # change text to text2 on hover
         label.enterEvent = lambda e: label.setText(text2)
@@ -313,7 +392,7 @@ class UI(QMainWindow):
             label.setToolTipDuration(-1)
         layout.addWidget(label)
                 
-    def test_selected_links(self):
+    def testSelectedLinks(self):
         # get selected tree items
         selected = self.getRanItems()
         self.testing_items.update([i.text(1) for i in selected])  # remember tested items
@@ -324,10 +403,16 @@ class UI(QMainWindow):
         self.checkSelected.setVisible(False)
         # send requests
         for index in range(0, len(selected), LinkTest.chunk_size):
-            items = selected[index:index+LinkTest.chunk_size]
+            items = selected[index : index + LinkTest.chunk_size]
             urls = [item.text(1) for item in items]
             try:
-                LinkTest.async_request(urls, items, self.finish_test_sig.emit, self.error_sig.emit)
+                LinkTest.async_request(
+                    urls,
+                    items,
+                    self.finish_test_sig.emit,
+                    self.error_sig.emit,
+                    use_third_party=self.useThirdParty.isChecked(),
+                )
             except RuntimeError:
                 return  # item was deleted
             QtWidgets.QApplication.processEvents()  # allow GUI to update
@@ -340,7 +425,9 @@ class UI(QMainWindow):
     def onSelection(self):
         # when an untested tree item is selected, show the "Test" button
         if selected := self.getRanItems():
-            self.checkSelected.setText(QtCore.QCoreApplication.translate("MainWindow", f"Test ({len(selected)}) \U0001F50D"))
+            self.checkSelected.setText(
+                QtCore.QCoreApplication.translate("MainWindow", f"Test ({len(selected)}) \U0001F50D")
+            )
             self.checkSelected.setVisible(True)
         else:
             self.checkSelected.setVisible(False)
@@ -374,7 +461,7 @@ class UI(QMainWindow):
         self.exportCsv.setEnabled(False)
         self.checkSelected.setVisible(False)
         # get all links from the input text using regex
-        links = re.findall(self.grouped_wiki_regex, text)
+        links = list(self.searchText(text))
         self.valid_links, self.duped_links, self.tested_links = [], [], []
         # enable progress bar
         self.progressBar.setMaximum(len(links))
@@ -427,11 +514,12 @@ class UI(QMainWindow):
     def retranslateUi(self):
         # set text (with translations)
         _translate = QtCore.QCoreApplication.translate
-        self.setWindowTitle(_translate("MainWindow", "Dupe Checker v1.16.1"))
+        self.setWindowTitle(_translate("MainWindow", f"Dupe Checker {__version__}"))
         self.label.setText(_translate("MainWindow", "FMHY Dupe Tester"))
-        self.label_2.setText(_translate("MainWindow", "by cevoj"))
+        self.label_2.setText(_translate("MainWindow", f"by {__author__}"))
         self._placeholderText = _translate("MainWindow", "Paste a list of links here...")
         self.inputBox.setPlaceholderText(self._placeholderText)
+        self.useThirdParty.setText(_translate("MainWindow", f"Use {b64decode('aHR0cHN0YXR1cy5pbw==').decode()} API"))
         self.copyValid.setText(_translate("MainWindow", "Copy \u2705"))
         self.copyDupes.setText(_translate("MainWindow", "Copy \u274C"))
         self.copyTested.setText(_translate("MainWindow", "Copy \U0001F50D"))
@@ -439,43 +527,60 @@ class UI(QMainWindow):
         self.outputTree.headerItem().setText(0, _translate("MainWindow", "Check"))
         self.outputTree.headerItem().setText(1, _translate("MainWindow", "Link"))
         self.outputTree.headerItem().setText(2, _translate("MainWindow", "Status"))
+    
+    @staticmethod
+    def errorMsg(text):
+        # build error message
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Critical)
+        msg.setText(text)
+        msg.setWindowIcon(QtGui.QIcon(resource_path('assets/icon.ico')))
+        msg.setWindowTitle("Connection Error")
+        if UI.DARK_MODE:
+            UI.darkTitleBar(int(msg.winId()))
+        msg.exec_()
+        sys.exit(1)
 
+    @staticmethod
+    def darkTitleBar(hwnd):
+        if (
+            sys.platform != 'win32'
+            or (version_num := sys.getwindowsversion()).major != 10
+        ):
+            return
+        set_window_attribute = ct.windll.dwmapi.DwmSetWindowAttribute
+        if version_num.build >= 22000: # windows 11
+            color = ct.c_int(0x2d2319)
+            set_window_attribute(hwnd, 35, ct.byref(color), ct.sizeof(color))
+        else:
+            rendering_policy = 19 if version_num.build < 19041 else 20 # 19 before 20h1
+            value = ct.c_int(True)
+            set_window_attribute(hwnd, rendering_policy, ct.byref(value), ct.sizeof(value))
 
-def dark_title_bar(hwnd):
-    if (
-        sys.platform != 'win32'
-        or (version_num := sys.getwindowsversion()).major != 10
-    ):
-        return
-    set_window_attribute = ct.windll.dwmapi.DwmSetWindowAttribute
-    if version_num.build >= 22000: # windows 11
-        color = ct.c_int(0x2d2319)
-        set_window_attribute(hwnd, 35, ct.byref(color), ct.sizeof(color))
-    else:
-        rendering_policy = 19 if version_num.build < 19041 else 20 # 19 before 20h1
-        value = ct.c_int(True)
-        set_window_attribute(hwnd, rendering_policy, ct.byref(value), ct.sizeof(value))
-
-
-def dark_palette():
-    # create darker palette with Fusion style
-    app.setStyle('Fusion')
-    palette = QtGui.QPalette()
-    palette.setColor(QtGui.QPalette.Window, QtGui.QColor(25,35,45))
-    palette.setColor(QtGui.QPalette.Light, QtGui.QColor(39, 49, 58))
-    palette.setColor(QtGui.QPalette.Dark, QtGui.QColor(39, 49, 58))
-    palette.setColor(QtGui.QPalette.WindowText, QtCore.Qt.white)
-    palette.setColor(QtGui.QPalette.Base, QtGui.QColor(39, 49, 58))
-    palette.setColor(QtGui.QPalette.AlternateBase, QtGui.QColor(25,35,45))
-    palette.setColor(QtGui.QPalette.ToolTipBase, QtCore.Qt.white)
-    palette.setColor(QtGui.QPalette.ToolTipText, QtCore.Qt.white)
-    palette.setColor(QtGui.QPalette.Text, QtCore.Qt.white)
-    palette.setColor(QtGui.QPalette.Button, QtGui.QColor(25,35,45))
-    palette.setColor(QtGui.QPalette.ButtonText, QtCore.Qt.white)
-    palette.setColor(QtGui.QPalette.BrightText, QtCore.Qt.blue)
-    palette.setColor(QtGui.QPalette.Highlight, QtGui.QColor(20, 129, 216))
-    palette.setColor(QtGui.QPalette.HighlightedText, QtCore.Qt.white)
-    app.setPalette(palette)
+    @staticmethod
+    def darkPalette():
+        # create darker palette with Fusion style
+        app.setStyle('Fusion')
+        palette = QtGui.QPalette()
+        cols = {
+            QtGui.QPalette.Window:           QtGui.QColor(25,35,45),
+            QtGui.QPalette.Light:            QtGui.QColor(39, 49, 58),
+            QtGui.QPalette.Dark:             QtGui.QColor(39, 49, 58),
+            QtGui.QPalette.WindowText:       QtCore.Qt.white,
+            QtGui.QPalette.Base:             QtGui.QColor(39, 49, 58),
+            QtGui.QPalette.AlternateBase:    QtGui.QColor(25,35,45),
+            QtGui.QPalette.ToolTipBase:      QtCore.Qt.white,
+            QtGui.QPalette.ToolTipText:      QtCore.Qt.white,
+            QtGui.QPalette.Text:             QtCore.Qt.white,
+            QtGui.QPalette.Button:           QtGui.QColor(25,35,45),
+            QtGui.QPalette.ButtonText:       QtCore.Qt.white,
+            QtGui.QPalette.BrightText:       QtCore.Qt.blue,
+            QtGui.QPalette.Highlight:        QtGui.QColor(20, 129, 216),
+            QtGui.QPalette.HighlightedText:  QtCore.Qt.white,
+        }
+        for (pal, color) in cols.items():
+            palette.setColor(pal, color)
+        app.setPalette(palette)
 
 
 class WikiScraper:
@@ -493,18 +598,25 @@ class WikiScraper:
     '''
     def __init__(self):
         self.URLS = {
-            'https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page': (self.handle_wiki, self.handle_b64),
-            'https://gitlab.com/nbatman_/deleted-links/-/raw/main/deleted-links': (self.handle_list,),
+            "https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page": (
+                self.handle_wiki,
+                self.handle_b64,
+            ),
+            "https://gitlab.com/nbatman_/deleted-links/-/raw/main/deleted-links": (
+                self.handle_list,
+            ),
         }
 
     def build_wiki_set(self) -> set:
         elapsed = time.perf_counter()
         try:
-            resps = grequests.map([grequests.get(l) for l in self.URLS], size=len(self.URLS))
+            resps = grequests.map(
+                [grequests.get(l) for l in self.URLS], size=len(self.URLS)
+            )
         except ConnectionError:
             # show connection error
             splash.hide()
-            self.error_msg("Could not connect to the internet. Please check your connection and try again.")
+            UI.errorMsg("Could not connect to the internet. Please check your connection and try again.")
         wiki = set()
         for resp, funcs in zip(resps, self.URLS.values()):
             for func in funcs:
@@ -525,22 +637,9 @@ class WikiScraper:
     
     def handle_b64(self, text) -> set:
         data = '\n'.join(
-            b64decode(m.strip('`')).decode()
-            for m in re.findall(self.b64_regex, text)
+            b64decode(m.strip('`')).decode() for m in re.findall(self.b64_regex, text)
         )
         return self.handle_list(data)
-
-def error_msg(text):
-    # build error message
-    msg = QtWidgets.QMessageBox()
-    msg.setIcon(QtWidgets.QMessageBox.Critical)
-    msg.setText(text)
-    msg.setWindowIcon(QtGui.QIcon(resource_path('assets/icon.ico')))
-    msg.setWindowTitle("Connection Error")
-    if DARK_MODE:
-        dark_title_bar(int(msg.winId()))
-    msg.exec_()
-    exit(1)
 
 
 if __name__ == "__main__":
