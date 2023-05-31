@@ -29,22 +29,40 @@ Run `FmhyChecker.pyw`
 
 ## Usage
 
-### Comparing and copying links
+### Comparing links to wiki
 
-This tool takes links inputted into the field on the left, and checks if they are not already present in the wiki. Links will be automatically pulled using regex.
+This tool takes links inputted into the field on the left, and checks if they are not already present in the wiki.
 
-*Note that the ReGex is designed to ignore trailing `/`, `http`/`https`, and `www`/`ww1`...`2`...etc*
+**Dupes** ***(already in wiki)*** will be indicated with a ❌, and **Unique links** ***(NOT in wiki)*** will have a ✅.
 
-*Dupes* will be indicated with a ❌, and *unique* links will have a ✅. Once the scan is complete, the `Copy ❌` and `Copy ✅` buttons will be ungreyed, allowing you to copy all *dupe* or *unique* flagged links separated by a newline (`\n`).
+Links will be automatically pulled using regex. The regex is designed to ignore trailing `/`, `http`/`https`, and `www`/`ww1`...`2`...etc to be as flexible as possible.
 
+### Copying links
+
+The UI provides 3 buttons to copy links to your clipboard.
+
+| Button | What it copies |
+|-|-|
+| `Copy ❌` | Copies *duped* (❌) links |
+| `Copy ✅` | Copies *unique* (✅) links |
+| `Copy 🔍` | Only links that are *unique* (✅) **AND** *tested* with a *successful* response code (🟢)
 
 ### Broken link tester
 
-![Usage video here](https://i.imgur.com/9BhHsaY.mp4)
+**Usage video**
 
-Selecting links and clicking `Test` will the URL's redirect chain. View a URL by hovering over its status code.
+https://github.com/fmhy/dupe-checker/assets/125338382/e144e529-db6b-4989-a90e-e27f6881efb6
 
-The `Copy 🔍` button will copy all links that are *unique* (✅) **and** *tested* to have successful responses (read more about status codes [here](https://httpstatus.io/http-status-codes)).
+Selecting links and clicking `Test` will the fetch the URL's redirect chain. View more information by *hovering* over a status code.
+
+| Status code | Indication |
+|-|-|
+| 🟢 `200`-`204` | Successful |
+| 🔵 `301`-`307` | Redirect |
+| 🟠 `400`-`410` | Client error |
+| 🔴 `500`-`504` | Server error |
+
+Read more about status codes [here](https://httpstatus.io/http-status-codes).
 
 
 ### CSV Exports

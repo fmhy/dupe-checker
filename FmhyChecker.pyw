@@ -1,14 +1,8 @@
 """
-FMHY Dupe Checker
-v1.17
+== FMHY Dupe Checker ==
+== by cevoj35548 ==
 """
 
-
-__author__ = "cevoj"
-__version__ = "1.17"
-
-
-# networking
 import grequests
 import requests
 import urllib3
@@ -16,7 +10,6 @@ from fake_headers import Headers
 from http.client import responses as status_codes
 from requests.exceptions import ConnectTimeout, ReadTimeout, ConnectionError, SSLError
 
-# gui
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import pyqtSignal
 from PyQt5 import uic
@@ -25,7 +18,6 @@ import ctypes as ct
 import darkdetect
 from pyperclip import copy
 
-# builtins
 import sys
 import os
 import re
@@ -37,6 +29,10 @@ from base64 import b64decode
 from queue import Queue
 from dataclasses import dataclass
 from typing import Union
+
+
+__author__ = "cevoj"
+__version__ = "1.17"
 
 
 # disable ssl warnings
@@ -65,8 +61,8 @@ class StatusResp:
 
 
 class LinkTest:
-    chunk_size = 50  # number of links to test at once
-    statusapi_url = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
+    chunk_size      = 50  # number of links to test at once
+    statusapi_url   = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
     statusapi_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0',
         'Accept': 'application/json, text/plain, */*',
@@ -103,8 +99,7 @@ class LinkTest:
     def handle_req(urls, items, callback, error_sig):
         # process the request & send back to main event loop
         dist_cnxns.put(1)  # wait for when <3 instances of handle_req are running. blocks if full
-        for item in items:
-            item.setText(2, 'Testing...')
+        LinkTest.set_testing(items)
         reqs = [
             grequests.head(url, headers=headers.generate(), timeout=5, allow_redirects=True, verify=False)
             for url in urls
@@ -130,8 +125,7 @@ class LinkTest:
     def thirdparty_req(urls, items, callback, error_sig):
         # process the request & send back to main event loop
         dist_cnxns.put(1)  # wait for when <3 requests are running. blocks if full
-        for item in items:
-            item.setText(2, 'Testing...')
+        LinkTest.set_testing(items)
         try:
             resp = requests.post(
                 LinkTest.statusapi_url,
@@ -169,6 +163,12 @@ class LinkTest:
         )
         # spawn thread to handle request
         thread.start()
+    
+    @staticmethod
+    def set_testing(items):
+        with suppress(RuntimeError):
+            for item in items:
+                item.setText(2, 'Testing...')
 
 
 class UI(QMainWindow):
