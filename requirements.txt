@@ -10,7 +10,7 @@ greenlet==2.0.2
 grequests==0.6.0
 html5lib==1.1
 idna==3.4
-msvc-runtime==14.34.31931
+msvc-runtime==14.34.31931; sys_platform == 'win32'
 Nuitka==1.5.4
 ordered-set==4.1.0
 pycparser==2.21

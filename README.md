@@ -33,7 +33,7 @@ Run `FmhyChecker.pyw`
 
 This tool takes links inputted into the field on the left, and checks if they are not already present in the wiki.
 
-**Dupes** ***(already in wiki)*** will be indicated with a ❌, and **Unique links** ***(NOT in wiki)*** will have a ✅.
+**Links** ***already*** **in the wiki** will be indicated with a ❌, and **links** ***NOT*** **in the wiki** will have a ✅.
 
 Links will be automatically pulled using regex. The regex is designed to ignore trailing `/`, `http`/`https`, and `www`/`ww1`...`2`...etc to be as flexible as possible.
 
