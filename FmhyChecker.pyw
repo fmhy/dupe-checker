@@ -32,7 +32,7 @@ from typing import Union
 
 
 __author__ = "cevoj"
-__version__ = "1.17"
+__version__ = "1.17.1"
 
 
 # disable ssl warnings
@@ -101,7 +101,7 @@ class LinkTest:
         dist_cnxns.put(1)  # wait for when <3 instances of handle_req are running. blocks if full
         LinkTest.set_testing(items)
         reqs = [
-            grequests.head(url, headers=headers.generate(), timeout=5, allow_redirects=True, verify=False)
+            grequests.head(url, headers=headers.generate(), timeout=10, allow_redirects=True, verify=False)
             for url in urls
         ]
         resps = grequests.imap(reqs, size=len(reqs), exception_handler=lambda _, e: e)
@@ -298,7 +298,7 @@ class UI(QMainWindow):
                     reason = self.tested_items[full_link]
                 else:
                     # get the number of redirects
-                    redirects = str(len(self.tested_items[full_link].history))
+                    redirects = str(max(len(self.tested_items[full_link].history) - 1, 0))
                     # get the reason for the status code
                     reason = self.tested_items[full_link].reason
                     # hyperlink status codes to the final url. chain together redirects with ' > '
