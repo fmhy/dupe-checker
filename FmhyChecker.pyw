@@ -276,6 +276,9 @@ class UI(QMainWindow):
         if not file_dialog.exec_():
             return
         file_path = file_dialog.selectedFiles()[0]
+        # remove file if it already exists
+        if os.path.exists(file_path):
+            os.remove(file_path)
         links = self.searchText(self.inputBox.toPlainText())
         try:
             with open(file_path, 'w', newline='') as csvfile:
