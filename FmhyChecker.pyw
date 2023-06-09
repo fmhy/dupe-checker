@@ -32,7 +32,7 @@ from typing import Union
 
 
 __author__ = "cevoj"
-__version__ = "1.17.1"
+__version__ = "1.17.2"
 
 
 # disable ssl warnings
@@ -61,8 +61,8 @@ class StatusResp:
 
 
 class LinkTest:
-    chunk_size      = 50  # number of links to test at once
-    statusapi_url   = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
+    chunk_size = 50  # number of links to test at once
+    statusapi_url = b64decode('aHR0cHM6Ly9iYWNrZW5kLmh0dHBzdGF0dXMuaW8vYXBp').decode()
     statusapi_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0',
         'Accept': 'application/json, text/plain, */*',
@@ -104,8 +104,8 @@ class LinkTest:
             grequests.head(url, headers=headers.generate(), timeout=10, allow_redirects=True, verify=False)
             for url in urls
         ]
-        resps = grequests.imap(reqs, size=len(reqs), exception_handler=lambda _, e: e)
-        for (item, url, resp) in zip(items, urls, resps):
+        resps = grequests.imap_enumerated(reqs, size=len(reqs), exception_handler=lambda _, e: e)
+        for index, resp in resps:
             if not resp:
                 err = 'Connection Failed'
             elif isinstance(resp, Exception):
@@ -113,12 +113,12 @@ class LinkTest:
             else:
                 err = None
             statusresp = StatusResp(
-                url          = url,
+                url          = urls[index],
                 status_code  = 0 if err else resp.status_code,
                 reason       = err or status_codes[resp.status_code],
                 history      = [] if err else (*resp.history, resp),
             )
-            callback(item, statusresp)
+            callback(items[index], statusresp)
         dist_cnxns.get()  # release next in queue
 
     @staticmethod

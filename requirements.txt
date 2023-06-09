@@ -7,7 +7,7 @@ darkdetect==0.8.0
 fake-headers==1.0.2
 gevent==22.10.2
 greenlet==2.0.2
-grequests==0.6.0
+grequests==0.7.0
 html5lib==1.1
 idna==3.4
 msvc-runtime==14.34.31931; sys_platform == 'win32'
