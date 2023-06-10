@@ -300,16 +300,22 @@ class UI(QMainWindow):
                     final_url = redirects = status_code = ''
                     reason = self.tested_items[full_link]
                 else:
-                    # get the number of redirects
-                    redirects = str(max(len(self.tested_items[full_link].history) - 1, 0))
                     # get the reason for the status code
                     reason = self.tested_items[full_link].reason
-                    # hyperlink status codes to the final url. chain together redirects with ' > '
-                    status_code = '=CONCAT('+', " > ", '.join(
-                        f'HYPERLINK("{r.url}", "{r.status_code}")'
-                        for r in self.tested_items[full_link].history
-                    )+')'
-                    final_url = self.tested_items[full_link].history[-1].url
+                    # if response chain exists
+                    if self.tested_items[full_link].history:
+                        # get the number of redirects
+                        redirects = str(len(self.tested_items[full_link].history) - 1)
+                        # get the final url
+                        final_url = self.tested_items[full_link].history[-1].url
+                        # hyperlink status codes to the final url. chain together redirects with ' > '
+                        status_code = '=CONCAT('+', " > ", '.join(
+                            f'HYPERLINK("{r.url}", "{r.status_code}")'
+                            for r in self.tested_items[full_link].history
+                        )+')'
+                    else:
+                        # if no history exists, set values to blank
+                        final_url = redirects = status_code = ''
             else:
                 # if the link was not tested, set values to blank
                 reason = redirects = final_url = status_code = ''
