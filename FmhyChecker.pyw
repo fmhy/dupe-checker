@@ -32,7 +32,7 @@ from typing import Union
 
 
 __author__ = "cevoj"
-__version__ = "1.17.2"
+__version__ = "1.17.3"
 
 
 # disable ssl warnings
@@ -309,7 +309,7 @@ class UI(QMainWindow):
                         f'HYPERLINK("{r.url}", "{r.status_code}")'
                         for r in self.tested_items[full_link].history
                     )+')'
-                    final_url = self.tested_items[full_link].url
+                    final_url = self.tested_items[full_link].history[-1].url
             else:
                 # if the link was not tested, set values to blank
                 reason = redirects = final_url = status_code = ''
