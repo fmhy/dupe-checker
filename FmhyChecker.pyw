@@ -607,7 +607,7 @@ class WikiScraper:
     '''
     def __init__(self):
         self.URLS = {
-            "https://raw.githubusercontent.com/nbats/FMHYedit/main/single-page": (
+            "https://api.fmhy.net/single-page": (
                 self.handle_wiki,
                 self.handle_b64,
             ),
